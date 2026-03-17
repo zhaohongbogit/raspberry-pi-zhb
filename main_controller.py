@@ -6,7 +6,7 @@ import time
 import board
 import adafruit_dht
 import paho.mqtt.client as mqtt
-from gpiozero import LED, OutputDevice, Servo
+from gpiozero import LED, OutputDevice, AngularServo
 from threading import Thread
 import logging
 
@@ -54,7 +54,7 @@ class IoTController:
             if name.startswith('led'):
                 self.devices[name] = LED(pin)
             elif name.startswith('servo'):
-                self.devices[name] = Servo(pin, min_angle=-90, max_angle=90)
+                self.devices[name] = AngularServo(pin, min_angle=-90, max_angle=90)
             else:
                 self.devices[name] = OutputDevice(pin)
             logger.info(f"设备 {name} 初始化在 GPIO{pin}")
@@ -124,7 +124,7 @@ class IoTController:
             'devices': {}
         }
         for name, dev in self.devices.items():
-            if isinstance(dev, Servo):
+            if isinstance(dev, AngularServo):
                 status['devices'][name] = dev.angle
             else:
                 status['devices'][name] = 'on' if dev.value else 'off'
