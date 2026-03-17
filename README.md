@@ -14,6 +14,7 @@
 | 220Ω 电阻 | 3 | LED 限流 |
 | 面包板 + 杜邦线 | 若干 | 连接 |
 | 风扇（可选） | 1 | 散热控制 |
+| SG90 舵机 | 1 | 角度控制 |
 
 ### 接线图
 
@@ -32,6 +33,11 @@ LED2:
 风扇（5V）:
   正极 → GPIO24 (Pin 18) → 三极管/MOS管 → 5V
   负极 → GND
+
+舵机 (SG90):
+  VCC (红) → 5V (Pin 2)
+  GND (黑) → GND (Pin 6)
+  信号 (橙) → GPIO12 (Pin 32)
 ```
 
 ## 二、系统安装与配置
@@ -74,7 +80,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # 安装依赖
-pip install RPi.GPIO paho-mqtt adafruit-circuitpython-dht
+pip install RPi.GPIO gpiozero paho-mqtt adafruit-circuitpython-dht
 ```
 
 ## 三、MQTT Broker 配置
@@ -113,7 +119,7 @@ import time
 import board
 import adafruit_dht
 import paho.mqtt.client as mqtt
-from gpiozero import LED, OutputDevice
+from gpiozero import LED, OutputDevice, Servo
 from threading import Thread
 import logging
 
@@ -136,7 +142,8 @@ PINS = {
     'led1': 18,
     'led2': 23,
     'fan': 24,
-    'pump': 25
+    'pump': 25,
+    'servo1': 12
 }
 
 class IoTController:
@@ -159,6 +166,8 @@ class IoTController:
         for name, pin in PINS.items():
             if name.startswith('led'):
                 self.devices[name] = LED(pin)
+            elif name.startswith('servo'):
+                self.devices[name] = Servo(pin, min_angle=-90, max_angle=90)
             else:
                 self.devices[name] = OutputDevice(pin)
             logger.info(f"设备 {name} 初始化在 GPIO{pin}")
@@ -184,29 +193,37 @@ class IoTController:
             
             device = payload.get('device')
             action = payload.get('action')
+            value = payload.get('value')
             
             if device in self.devices:
-                self.control_device(device, action)
+                self.control_device(device, action, value)
             else:
                 logger.warning(f"未知设备: {device}")
                 
         except Exception as e:
             logger.error(f"处理消息失败: {e}")
     
-    def control_device(self, device, action):
+    def control_device(self, device, action, value=None):
         """控制设备"""
         try:
             dev = self.devices[device]
             
-            if action == 'on':
-                dev.on()
-                logger.info(f"{device} 已开启")
-            elif action == 'off':
-                dev.off()
-                logger.info(f"{device} 已关闭")
-            elif action == 'toggle':
-                dev.toggle()
-                logger.info(f"{device} 已切换状态")
+            if device.startswith('servo'):
+                if action == 'angle' and value is not None:
+                    dev.angle = float(value)
+                    logger.info(f"{device} 设置角度: {value}")
+                else:
+                    logger.warning(f"无效的舵机命令: {action}")
+            else:
+                if action == 'on':
+                    dev.on()
+                    logger.info(f"{device} 已开启")
+                elif action == 'off':
+                    dev.off()
+                    logger.info(f"{device} 已关闭")
+                elif action == 'toggle':
+                    dev.toggle()
+                    logger.info(f"{device} 已切换状态")
             
             self.publish_status()
             
@@ -217,11 +234,13 @@ class IoTController:
         """发布设备状态"""
         status = {
             'timestamp': time.time(),
-            'devices': {
-                name: 'on' if dev.value else 'off' 
-                for name, dev in self.devices.items()
-            }
+            'devices': {}
         }
+        for name, dev in self.devices.items():
+            if isinstance(dev, Servo):
+                status['devices'][name] = dev.angle
+            else:
+                status['devices'][name] = 'on' if dev.value else 'off'
         self.mqtt_client.publish(MQTT_TOPIC_STATUS, json.dumps(status))
     
     def read_sensor(self):
@@ -272,7 +291,10 @@ class IoTController:
         self.running = False
         self.mqtt_client.disconnect()
         for dev in self.devices.values():
-            dev.off()
+            if hasattr(dev, 'off'):
+                dev.off()
+            elif hasattr(dev, 'detach'):
+                dev.detach()
         logger.info("资源已清理")
 
 if __name__ == '__main__':
@@ -338,6 +360,12 @@ mosquitto_pub -h 树莓派IP -t "rpi3b/control" -m '{"device":"led1","action":"o
 
 # 切换风扇
 mosquitto_pub -h 树莓派IP -t "rpi3b/control" -m '{"device":"fan","action":"toggle"}'
+
+# 控制舵机角度 (0度)
+mosquitto_pub -h 树莓派IP -t "rpi3b/control" -m '{"device":"servo1","action":"angle","value":0}'
+
+# 控制舵机角度 (90度)
+mosquitto_pub -h 树莓派IP -t "rpi3b/control" -m '{"device":"servo1","action":"angle","value":90}'
 
 # 查看传感器数据
 mosquitto_sub -h 树莓派IP -t "rpi3b/sensor" -v
@@ -409,12 +437,32 @@ def index():
             <button class="off" onclick="control('fan', 'off')">关</button>
         </div>
         
+        <div class="device">
+            <h3>舵机</h3>
+            <input type="range" id="servoAngle" min="-90" max="90" value="0" step="1" oninput="updateServoValue()">
+            <span id="servoValue">0</span>°
+            <button onclick="controlServo()">设置角度</button>
+        </div>
+        
         <script>
         function control(device, action) {
             fetch('/control', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({device, action})
+            });
+        }
+        
+        function updateServoValue() {
+            document.getElementById('servoValue').textContent = document.getElementById('servoAngle').value;
+        }
+        
+        function controlServo() {
+            const angle = document.getElementById('servoAngle').value;
+            fetch('/control', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({device: 'servo1', action: 'angle', value: parseInt(angle)})
             });
         }
         
