@@ -148,9 +148,9 @@ class IoTController:
             self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
             
             # 启动传感器线程
-            sensor_thread = Thread(target=self.sensor_loop)
-            sensor_thread.daemon = True
-            sensor_thread.start()
+            # sensor_thread = Thread(target=self.sensor_loop)
+            # sensor_thread.daemon = True
+            # sensor_thread.start()
             
             # MQTT 网络循环
             self.mqtt_client.loop_forever()
