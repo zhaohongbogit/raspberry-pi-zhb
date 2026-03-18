@@ -7,6 +7,7 @@ import board
 import adafruit_dht
 import paho.mqtt.client as mqtt
 from gpiozero import LED, OutputDevice, AngularServo
+from gpiozero.pins.pigpio import PiGPIOFactory
 from threading import Thread
 import logging
 
@@ -16,6 +17,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# 初始化硬件 PWM
+factory = PiGPIOFactory()
 
 # MQTT 配置
 MQTT_BROKER = "localhost"
@@ -54,7 +58,7 @@ class IoTController:
             if name.startswith('led'):
                 self.devices[name] = LED(pin)
             elif name.startswith('servo'):
-                self.devices[name] = AngularServo(pin, min_angle=0, max_angle=180, min_pulse_width=0.0005, max_pulse_width=0.0024)
+                self.devices[name] = AngularServo(pin, min_angle=0, max_angle=180, min_pulse_width=0.0006, max_pulse_width=0.0024, pin_factory=factory)
             else:
                 self.devices[name] = OutputDevice(pin)
             logger.info(f"设备 {name} 初始化在 GPIO{pin}")

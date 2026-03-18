@@ -63,6 +63,12 @@ sudo apt upgrade -y
 # 安装必要软件
 sudo apt install -y python3-pip python3-venv python3-gpiozero mosquitto mosquitto-clients
 
+# 安装pigpio，启用物理PWM防抖
+sudo apt-get update
+sudo apt-get install pigpiod
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
+
 # 启用 GPIO
 sudo dietpi-config
 # 进入 Advanced Options → GPIO → 启用
@@ -82,7 +88,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # 安装依赖
-pip install RPi.GPIO gpiozero paho-mqtt adafruit-circuitpython-dht
+pip install RPi.GPIO gpiozero paho-mqtt adafruit-circuitpython-dht pigpio
 ```
 
 ## 三、MQTT Broker 配置
