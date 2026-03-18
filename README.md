@@ -61,11 +61,13 @@ sudo apt update
 sudo apt upgrade -y
 
 # 安装必要软件
-sudo apt install -y python3-pip python3-venv mosquitto mosquitto-clients
+sudo apt install -y python3-pip python3-venv python3-gpiozero mosquitto mosquitto-clients
 
 # 启用 GPIO
 sudo dietpi-config
 # 进入 Advanced Options → GPIO → 启用
+# RaspberryPi OS Lite
+sudo raspi-config
 ```
 
 ### 3. 安装 Python 库
