@@ -118,197 +118,178 @@ mosquitto_pub -h localhost -t "test/topic" -m "Hello Raspberry Pi"
 
 ### 1. 主控制程序（完整版）
 
-```python
-#!/usr/bin/env python3
-# ~/source/raspberry-pi-zhb/main_controller.py
+（本 README 中的示例略去部分实现细节，可直接查看 `main_controller.py` 获取最新实现）
 
-import json
-import time
-import board
-import adafruit_dht
-import paho.mqtt.client as mqtt
-from gpiozero import LED, OutputDevice, Servo
-from threading import Thread
-import logging
+### 2. MQTT 控制命令示例
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+#### （1）单设备控制
 
-# MQTT 配置
-MQTT_BROKER = "localhost"
-MQTT_PORT = 1883
-MQTT_TOPIC_CONTROL = "rpi3b/control"    # 接收控制命令
-MQTT_TOPIC_SENSOR = "rpi3b/sensor"      # 发送传感器数据
-MQTT_TOPIC_STATUS = "rpi3b/status"      # 发送设备状态
+- **LED / 风扇 / 水泵 (输出设备)**
 
-# GPIO 配置
-PINS = {
-    'led1': 18,
-    'led2': 23,
-    'fan': 24,
-    'pump': 25,
-    'servo1': 12
-}
-
-class IoTController:
-    def __init__(self):
-        self.devices = {}
-        self.dht = adafruit_dht.DHT22(board.D4)
-        self.running = True
-        
-        # 初始化设备
-        self.setup_devices()
-        
-        # 初始化 MQTT
-        self.mqtt_client = mqtt.Client()
-        self.mqtt_client.on_connect = self.on_connect
-        self.mqtt_client.on_message = self.on_message
-        self.mqtt_client.on_disconnect = self.on_disconnect
-        
-    def setup_devices(self):
-        """初始化 GPIO 设备"""
-        for name, pin in PINS.items():
-            if name.startswith('led'):
-                self.devices[name] = LED(pin)
-            elif name.startswith('servo'):
-                self.devices[name] = Servo(pin, min_angle=-90, max_angle=90)
-            else:
-                self.devices[name] = OutputDevice(pin)
-            logger.info(f"设备 {name} 初始化在 GPIO{pin}")
-    
-    def on_connect(self, client, userdata, flags, rc):
-        """MQTT 连接回调"""
-        if rc == 0:
-            logger.info("MQTT 连接成功")
-            client.subscribe(MQTT_TOPIC_CONTROL)
-            self.publish_status()
-        else:
-            logger.error(f"MQTT 连接失败，返回码: {rc}")
-    
-    def on_disconnect(self, client, userdata, rc):
-        """MQTT 断开回调"""
-        logger.warning(f"MQTT 断开连接，返回码: {rc}")
-    
-    def on_message(self, client, userdata, msg):
-        """接收控制命令"""
-        try:
-            payload = json.loads(msg.payload.decode())
-            logger.info(f"收到命令: {payload}")
-            
-            device = payload.get('device')
-            action = payload.get('action')
-            value = payload.get('value')
-            
-            if device in self.devices:
-                self.control_device(device, action, value)
-            else:
-                logger.warning(f"未知设备: {device}")
-                
-        except Exception as e:
-            logger.error(f"处理消息失败: {e}")
-    
-    def control_device(self, device, action, value=None):
-        """控制设备"""
-        try:
-            dev = self.devices[device]
-            
-            if device.startswith('servo'):
-                if action == 'angle' and value is not None:
-                    dev.angle = float(value)
-                    logger.info(f"{device} 设置角度: {value}")
-                else:
-                    logger.warning(f"无效的舵机命令: {action}")
-            else:
-                if action == 'on':
-                    dev.on()
-                    logger.info(f"{device} 已开启")
-                elif action == 'off':
-                    dev.off()
-                    logger.info(f"{device} 已关闭")
-                elif action == 'toggle':
-                    dev.toggle()
-                    logger.info(f"{device} 已切换状态")
-            
-            self.publish_status()
-            
-        except Exception as e:
-            logger.error(f"控制设备失败: {e}")
-    
-    def publish_status(self):
-        """发布设备状态"""
-        status = {
-            'timestamp': time.time(),
-            'devices': {}
-        }
-        for name, dev in self.devices.items():
-            if isinstance(dev, Servo):
-                status['devices'][name] = dev.angle
-            else:
-                status['devices'][name] = 'on' if dev.value else 'off'
-        self.mqtt_client.publish(MQTT_TOPIC_STATUS, json.dumps(status))
-    
-    def read_sensor(self):
-        """读取传感器数据"""
-        try:
-            temperature = self.dht.temperature
-            humidity = self.dht.humidity
-            
-            if temperature is not None and humidity is not None:
-                data = {
-                    'timestamp': time.time(),
-                    'temperature': round(temperature, 1),
-                    'humidity': round(humidity, 1)
-                }
-                self.mqtt_client.publish(MQTT_TOPIC_SENSOR, json.dumps(data))
-                logger.info(f"传感器数据: {data}")
-                
-        except Exception as e:
-            logger.error(f"读取传感器失败: {e}")
-    
-    def sensor_loop(self):
-        """传感器读取循环"""
-        while self.running:
-            self.read_sensor()
-            time.sleep(10)  # 每 10 秒读取一次
-    
-    def run(self):
-        """主运行循环"""
-        try:
-            # 连接 MQTT
-            self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-            
-            # 启动传感器线程
-            sensor_thread = Thread(target=self.sensor_loop)
-            sensor_thread.daemon = True
-            sensor_thread.start()
-            
-            # MQTT 网络循环
-            self.mqtt_client.loop_forever()
-            
-        except KeyboardInterrupt:
-            logger.info("程序终止")
-        finally:
-            self.cleanup()
-    
-    def cleanup(self):
-        """清理资源"""
-        self.running = False
-        self.mqtt_client.disconnect()
-        for dev in self.devices.values():
-            if hasattr(dev, 'off'):
-                dev.off()
-            elif hasattr(dev, 'detach'):
-                dev.detach()
-        logger.info("资源已清理")
-
-if __name__ == '__main__':
-    controller = IoTController()
-    controller.run()
+```json
+{"device":"led1","action":"on"}
+{"device":"fan","action":"off"}
 ```
+
+- **舵机控制（角度）**
+
+```json
+{"device":"servo1","action":"angle","value":90}
+{"device":"servo2","action":"angle","value":120}
+```
+
+- **L298N 电机驱动（motor）**
+
+```json
+{"device":"motor","action":"forward"}
+{"device":"motor","action":"backward"}
+{"device":"motor","action":"stop"}
+
+{"device":"motor","action":"speed","value":0.6}
+{"device":"motor","action":"speed","value":-50}  # 支持 -1~1 或 0~100 百分比
+```
+
+#### （2）车速 + 方向 一体控制（drive）
+
+一次 MQTT 消息同时控制电机速度和前轮转向：
+
+```json
+{
+  "device": "drive",
+  "action": "set",
+  "value": {
+    "speed": 0.6,
+    "steer": 120
+  }
+}
+```
+
+- `speed`：-1.0（全速反转）~1.0（全速正转），也支持 0~100 百分比
+  - 程序默认会自动限速（`MAX_DRIVE_SPEED`）
+  - 当转向接近舵机极限时，会自动降低最高速度以减少碰撞风险
+- `steer`：0~180（对应舵机角度）
+  - 程序会自动限制在安全区间 (`STEER_MIN_ANGLE` / `STEER_MAX_ANGLE`) 以内，避免舵机撞击机械限位
+
+### 主动避障模式（可启/关）
+
+当 `OBSTACLE AVOIDANCE` 开启时，程序会自动根据超声波距离传感器判断是否需要减速/倒退，并尝试让前轮回中保持直行：
+
+- 距离小于 `OBSTACLE_SLOW_DISTANCE`（默认 0.5m）时：自动限速到 `OBSTACLE_SLOW_SPEED`（默认 0.3），并将前轮回中。
+- 距离小于 `OBSTACLE_REVERSE_DISTANCE`（默认 0.2m）时：自动倒退（默认速度 -0.4），并尝试返回安全点（回中舵机）。
+
+#### 开关避障模式
+
+```json
+{"device":"obstacle","action":"off"}
+{"device":"obstacle","action":"on"}
+```
+
+#### 返回安全点（停止并回中舵机 + 短暂倒退）
+
+```json
+{"device":"return","action":"home"}
+```
+
+#### 导航回“起点”或指定坐标（近似）
+
+```json
+{"device":"navigate","action":"to","value":{"x":0.0,"y":0.0}}
+```
+
+- 该命令会启用简易位置积分（基于时间和速度）来估计当前位置，并向目标点行驶。
+- 如果要返回起点，可将坐标设为 `x=0, y=0`。
+
+#### 取消导航
+
+```json
+{"device":"navigate","action":"stop"}
+```
+
+#### 多点路径导航（依次到达多个点）
+
+```json
+{
+  "device": "navigate",
+  "action": "path",
+  "value": [
+    {"x": 1.0, "y": 0.0},
+    {"x": 1.0, "y": 1.0},
+    {"x": 0.0, "y": 1.0}
+  ]
+}
+```
+
+#### 设置家（起点）位置
+
+```json
+{"device":"position","action":"set_home","value":{"x":0.5,"y":0.5}}
+```
+
+#### 将当前位置设置为家（起点）
+
+```json
+{"device":"position","action":"set_current_as_home"}
+```
+
+#### 返回到设定的家（起点）
+
+```json
+{"device":"navigate","action":"return_home"}
+```
+
+#### 设置避障绕行方向（左/右）
+
+```json
+{"device":"obstacle","action":"avoid_mode","value":"left"}
+```
+
+或
+
+```json
+{"device":"obstacle","action":"avoid_mode","value":"right"}
+```
+
+#### 传感器接线示例（HC-SR04）
+
+```plain
+HC-SR04:
+  VCC  → 5V
+  GND  → GND
+  TRIG → GPIO27
+  ECHO → GPIO17
+```
+
+> ⚠️ 如果你的接线不同，请修改 `main_controller.py` 中的 `DISTANCE_SENSOR_TRIGGER` / `DISTANCE_SENSOR_ECHO` 常量。
+
+### 进阶功能说明
+
+#### 1. 避障绕行（左/右策略）
+
+当启用了 `obstacle_avoidance` 并设置了 `avoid_mode`（`left` 或 `right`）时，车辆在导航过程中遇到障碍会自动尝试从指定方向绕过障碍，而不是简单倒退。
+
+#### 2. 多点路径规划
+
+使用 `navigate:path` 命令，可以让车辆依次访问多个路径点。系统会自动按顺序到达每个点，适合园林巡回、自动清扫等应用。
+
+#### 3. 自定义起点（Home）管理
+
+车辆支持记录和返回用户定义的"起点"，而不仅仅是坐标原点。这样可以实现：
+- 标记工作区起点
+- 充电站位置记录
+- 随时返回确定已知位置
+
+#### 4. 定位方式（近似里程计）
+
+系统基于 PWM 时间积分 + 舵机角度估算位置。精度有限，适合：
+- 短距离导航（< 5m）
+- 室内慢速环境
+- 初步测试和演示
+
+如需更高精度，建议添加：
+- 轮式编码器（增量式）
+- 陀螺仪 / IMU（方向校正）
+- 主摄像头（视觉里程计）
+
 
 ### 2. 创建启动脚本
 
