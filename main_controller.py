@@ -125,6 +125,32 @@ class IoTController:
                 self.devices[name] = OutputDevice(pin)
             logger.info(f"设备 {name} 初始化在 GPIO{pin}")
 
+        # 初始化 L298N 电机驱动 (双向电机控制)
+        self.devices['motor'] = Motor(
+            forward=MOTOR_PINS['forward'],
+            backward=MOTOR_PINS['backward'],
+            enable=MOTOR_PINS['enable'],
+            pin_factory=factory,
+            pwm=True,
+        )
+        logger.info(
+            f"设备 motor (L298N) 初始化: forward={MOTOR_PINS['forward']} "
+            f"backward={MOTOR_PINS['backward']} enable={MOTOR_PINS['enable']}"
+        )
+
+        # 初始化超声波距离传感器
+        self.devices['distance'] = DistanceSensor(
+            echo=DISTANCE_SENSOR_ECHO,
+            trigger=DISTANCE_SENSOR_TRIGGER,
+            max_distance=2.0,
+            threshold_distance=OBSTACLE_SLOW_DISTANCE,
+            pin_factory=factory,
+        )
+        logger.info(
+            f"设备 distance (HC-SR04) 初始化: echo={DISTANCE_SENSOR_ECHO} "
+            f"trigger={DISTANCE_SENSOR_TRIGGER}"
+        )
+
     def on_connect(self, client, userdata, flags, rc):
         """MQTT 连接回调"""
         if rc == 0:
