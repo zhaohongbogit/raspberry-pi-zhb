@@ -622,9 +622,9 @@ class IoTController:
             # sensor_thread.start()
 
             # 启动里程计线程（用于导航定位）
-            odom_thread = Thread(target=self._odometry_loop)
-            odom_thread.daemon = True
-            odom_thread.start()
+            # odom_thread = Thread(target=self._odometry_loop)
+            # odom_thread.daemon = True
+            # odom_thread.start()
 
             # MQTT 网络循环
             self.mqtt_client.loop_forever()
