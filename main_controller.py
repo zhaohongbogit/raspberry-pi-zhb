@@ -139,17 +139,17 @@ class IoTController:
         )
 
         # 初始化超声波距离传感器
-        self.devices['distance'] = DistanceSensor(
-            echo=DISTANCE_SENSOR_ECHO,
-            trigger=DISTANCE_SENSOR_TRIGGER,
-            max_distance=2.0,
-            threshold_distance=OBSTACLE_SLOW_DISTANCE,
-            pin_factory=factory,
-        )
-        logger.info(
-            f"设备 distance (HC-SR04) 初始化: echo={DISTANCE_SENSOR_ECHO} "
-            f"trigger={DISTANCE_SENSOR_TRIGGER}"
-        )
+        # self.devices['distance'] = DistanceSensor(
+        #     echo=DISTANCE_SENSOR_ECHO,
+        #     trigger=DISTANCE_SENSOR_TRIGGER,
+        #     max_distance=2.0,
+        #     threshold_distance=OBSTACLE_SLOW_DISTANCE,
+        #     pin_factory=factory,
+        # )
+        # logger.info(
+        #     f"设备 distance (HC-SR04) 初始化: echo={DISTANCE_SENSOR_ECHO} "
+        #     f"trigger={DISTANCE_SENSOR_TRIGGER}"
+        # )
 
     def on_connect(self, client, userdata, flags, rc):
         """MQTT 连接回调"""
@@ -617,14 +617,14 @@ class IoTController:
             self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
             # 启动传感器线程（后台跑，避免阻塞 MQTT 循环）
-            # sensor_thread = Thread(target=self.sensor_loop)
-            # sensor_thread.daemon = True
-            # sensor_thread.start()
+            sensor_thread = Thread(target=self.sensor_loop)
+            sensor_thread.daemon = True
+            sensor_thread.start()
 
             # 启动里程计线程（用于导航定位）
-            # odom_thread = Thread(target=self._odometry_loop)
-            # odom_thread.daemon = True
-            # odom_thread.start()
+            odom_thread = Thread(target=self._odometry_loop)
+            odom_thread.daemon = True
+            odom_thread.start()
 
             # MQTT 网络循环
             self.mqtt_client.loop_forever()
